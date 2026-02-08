@@ -6,10 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "docker:up": "docker-compose up --build",
-    "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f",
-    "test:redis": "node scripts/test-redis.js"
+    "worker": "node src/workers/email.worker.js"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +25,7 @@
     "joi": "^18.0.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.6",
+    "moran": "^0.0.11",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "nodemailer": "^8.0.1",

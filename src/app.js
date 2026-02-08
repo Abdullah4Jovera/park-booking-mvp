@@ -1,20 +1,24 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const mongoose = require("mongoose");
+
 const redisClient = require("./config/redis");
-const { startEmailWorker } = require('./workers/emailWorker');
-const bullBoardAdapter = require('./config/bullBoard');
-// Route imports
+const bullBoard = require("./bullboard");
+
+// Routes
 const attractionRoutes = require("./routes/attraction.routes");
 const bookingRoutes = require("./routes/booking.routes");
 
 const app = express();
 
-// ============================
-// SECURITY MIDDLEWARE
-// ============================
+/* ======================================================
+   MIDDLEWARE
+====================================================== */
+
+// Security headers
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -26,239 +30,141 @@ app.use(
         imgSrc: ["'self'", "data:", "https:"],
       },
     },
-    hsts: {
-      maxAge: 31536000,
-      includeSubDomains: true,
-      preload: true,
-    },
+    hsts: process.env.NODE_ENV === "production"
+      ? {
+          maxAge: 31536000,
+          includeSubDomains: true,
+          preload: true,
+        }
+      : false,
   })
 );
 
-// ============================
-// CORS CONFIGURATION
-// ============================
+// CORS
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL
-      ? process.env.FRONTEND_URL.split(",")
-      : ["http://localhost:3000"],
+    origin: process.env.CORS_ORIGIN || "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-      "X-API-Key",
-    ],
-    exposedHeaders: ["X-Response-Time"],
   })
 );
 
-// ============================
-// RESPONSE TIME HEADER
-// ============================
-// ❌ Don't set headers after 'finish' event (headers already sent).
-// ✅ Instead, compute duration and store it *before* headers are sent.
-app.use((req, res, next) => {
-  const start = Date.now();
+// Logging
+app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
-  // Compute duration right before sending response
-  const originalSend = res.send;
-  res.send = function (...args) {
-    const duration = Date.now() - start;
-    if (!res.headersSent) {
-      res.setHeader("X-Response-Time", `${duration}ms`);
-    }
-    return originalSend.apply(res, args);
-  };
-
-  next();
-});
-
-// ============================
-// BODY PARSING
-// ============================
+// Body parsing
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// ============================
-// LOGGING
-// ============================
-if (process.env.NODE_ENV !== "test") {
-  app.use(
-    morgan(":method :url :status :response-time ms - :res[content-length]")
-  );
-}
-
-
-// Start the email worker
-// startEmailWorker();
-
-// Bull Board UI
-app.use('/admin/queues', bullBoardAdapter.getRouter());
-
-// ============================
-// HEALTH CHECK
-// ============================
-app.get("/health", async (req, res) => {
-  const healthCheck = {
-    timestamp: new Date().toISOString(),
-    service: "Park Booking API",
-    version: "1.0.0",
-    status: "healthy",
-    uptime: process.uptime(),
-    checks: {
-      mongodb: { status: "unknown", latency: 0 },
-      redis: { status: "unknown", latency: 0 },
-      memory: { status: "healthy", usage: process.memoryUsage() },
-    },
-  };
-
-  try {
-    // MongoDB status
-    const mongoStart = Date.now();
-    const mongoState = mongoose.connection.readyState;
-    const mongoLatency = Date.now() - mongoStart;
-
-    healthCheck.checks.mongodb.latency = mongoLatency;
-    healthCheck.checks.mongodb.status =
-      mongoState === 1 ? "healthy" : "unhealthy";
-    healthCheck.checks.mongodb.readyState = mongoState;
-    if (mongoState !== 1) healthCheck.status = "degraded";
-
-    // Redis status
-    const redisStart = Date.now();
-    const redisHealth = await redisClient.healthCheck();
-    const redisLatency = Date.now() - redisStart;
-
-    healthCheck.checks.redis.latency = redisLatency;
-    healthCheck.checks.redis.status = redisHealth.healthy
-      ? "healthy"
-      : "unhealthy";
-    healthCheck.checks.redis.details = redisHealth;
-    if (!redisHealth.healthy) healthCheck.status = "degraded";
-
-    // Memory usage
-    const memoryUsage = process.memoryUsage();
-    const memoryPercent = (memoryUsage.heapUsed / memoryUsage.heapTotal) * 100;
-    if (memoryPercent > 90) {
-      healthCheck.checks.memory.status = "warning";
-      healthCheck.status = "degraded";
-    }
-
-    // Status code logic
-    const statusCode =
-      healthCheck.status === "healthy" ? 200 : healthCheck.status === "degraded" ? 200 : 503;
-
-    return res.status(statusCode).json(healthCheck);
-  } catch (error) {
-    console.error("Health check failed:", error);
-    healthCheck.status = "unhealthy";
-    healthCheck.error = error.message;
-    return res.status(503).json(healthCheck);
-  }
+// Response time header
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+  res.on("finish", () => {
+    const duration = Number(process.hrtime.bigint() - start) / 1e6;
+    res.setHeader("X-Response-Time", `${duration.toFixed(2)}ms`);
+  });
+  next();
 });
 
-// ============================
-// ROOT ROUTE
-// ============================
+/* ======================================================
+   ROUTES
+====================================================== */
+
 app.get("/", (req, res) => {
   res.json({
-    message: "Park Booking API 🚀",
+    service: "Park Booking API 🚀",
     version: "1.0.0",
     status: "operational",
-    documentation: "https://github.com/your-repo/docs",
+    uptime: process.uptime(),
     endpoints: {
       attractions: "/api/attractions",
       bookings: "/api/bookings",
       health: "/health",
       metrics: "/metrics",
+      queues: "/admin/queues",
     },
-    uptime: process.uptime(),
   });
 });
 
-// ============================
-// METRICS
-// ============================
+// Health check (never throw)
+app.get("/health", async (req, res) => {
+  res.json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    services: {
+      mongodb:
+        mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+      redis: redisClient.status || "unknown",
+    },
+  });
+});
+
+// Metrics (safe diagnostics)
 app.get("/metrics", (req, res) => {
-  const metrics = {
+  res.json({
     timestamp: new Date().toISOString(),
     process: {
       uptime: process.uptime(),
       memory: process.memoryUsage(),
       cpu: process.cpuUsage(),
-      version: process.version,
+      nodeVersion: process.version,
     },
     connections: {
       mongodb: mongoose.connection.readyState,
-      redis: redisClient.getStatus(),
+      redis: redisClient.status,
     },
-  };
-  res.json(metrics);
+  });
 });
 
-// ============================
-// API ROUTES
-// ============================
+// API routes
 app.use("/api/attractions", attractionRoutes);
 app.use("/api/bookings", bookingRoutes);
 
-// ============================
-// 404 HANDLER
-// ============================
+// Bull Board (protect in prod!)
+app.use("/admin/queues", bullBoard.router);
+
+/* ======================================================
+   ERROR HANDLING
+====================================================== */
+
+// 404 handler
 app.use((req, res) => {
-  if (res.headersSent) return;
   res.status(404).json({
     success: false,
-    message: `Route ${req.originalUrl} not found`,
     error: "Not Found",
+    message: `Route ${req.originalUrl} does not exist`,
     timestamp: new Date().toISOString(),
-    suggestions: ["/api/attractions", "/api/bookings", "/health"],
   });
 });
 
-// ============================
-// GLOBAL ERROR HANDLER (FIXED)
-// ============================
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error(`[${new Date().toISOString()}] Error:`, {
+  console.error("🔥 API Error", {
     message: err.message,
     stack: err.stack,
-    url: req.originalUrl,
+    path: req.originalUrl,
     method: req.method,
-    ip: req.ip,
   });
 
-  // ✅ Prevent double responses
-  if (res.headersSent) {
-    console.warn("⚠️  Headers already sent, skipping duplicate response.");
-    return next(err);
-  }
+  if (res.headersSent) return next(err);
 
   const statusCode = err.statusCode || 500;
-  const isProduction = process.env.NODE_ENV === "production";
+  const isProd = process.env.NODE_ENV === "production";
 
-  const errorResponse = {
+  const payload = {
     success: false,
     message:
-      isProduction && statusCode === 500
+      isProd && statusCode === 500
         ? "Internal Server Error"
         : err.message,
-    timestamp: new Date().toISOString(),
     path: req.originalUrl,
+    timestamp: new Date().toISOString(),
   };
 
-  if (!isProduction) {
-    errorResponse.stack = err.stack;
-    errorResponse.details = err.details;
-  }
+  if (!isProd) payload.stack = err.stack;
+  if (err.name === "ValidationError") payload.errors = err.errors;
 
-  if (err.name === "ValidationError") {
-    errorResponse.validationErrors = err.errors;
-  }
-
-  return res.status(statusCode).json(errorResponse);
+  res.status(statusCode).json(payload);
 });
 
 module.exports = app;

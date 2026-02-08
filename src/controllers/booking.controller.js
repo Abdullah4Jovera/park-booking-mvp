@@ -4,11 +4,7 @@ const Attraction = require('../models/Attraction');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const cloudinary = require('../config/cloudinary');
-const { Queue } = require('bullmq');
-const { redisConnection } = require('../config/bull');
 
-// Initialize the email queue
-const emailQueue = new Queue('emailQueue', { connection: redisConnection });
 
 exports.createBooking = async (req, res) => {
   try {
@@ -117,33 +113,33 @@ exports.createBooking = async (req, res) => {
     // ---------------------------
 
     // Visitor Email
-    await emailQueue.add('sendVisitorEmail', {
-      to: visitorEmail,
-      subject: `Your Booking Confirmation - ${attraction.name}`,
-      html: `
-        <h2>Hello ${visitorName},</h2>
-        <p>Thank you for booking ${numberOfTickets} ticket(s) for <strong>${attraction.name}</strong> on <strong>${bookingDate}</strong> at <strong>${timeSlot}</strong>.</p>
-        <p>Total: $${finalAmount.toFixed(2)}</p>
-        <img src="${upload.secure_url}" alt="QR Code" style="width:200px;height:200px;"/>
-        <p>Please show this QR code at the entrance.</p>
-        <p>Booking ID: ${bookingId}</p>
-        <p>Enjoy your visit! 🎢</p>
-      `
-    });
+    // await emailQueue.add('sendVisitorEmail', {
+    //   to: visitorEmail,
+    //   subject: `Your Booking Confirmation - ${attraction.name}`,
+    //   html: `
+    //     <h2>Hello ${visitorName},</h2>
+    //     <p>Thank you for booking ${numberOfTickets} ticket(s) for <strong>${attraction.name}</strong> on <strong>${bookingDate}</strong> at <strong>${timeSlot}</strong>.</p>
+    //     <p>Total: $${finalAmount.toFixed(2)}</p>
+    //     <img src="${upload.secure_url}" alt="QR Code" style="width:200px;height:200px;"/>
+    //     <p>Please show this QR code at the entrance.</p>
+    //     <p>Booking ID: ${bookingId}</p>
+    //     <p>Enjoy your visit! 🎢</p>
+    //   `
+    // });
 
     // Admin Email
-    await emailQueue.add('sendAdminEmail', {
-      to: process.env.ALERT_EMAIL,
-      subject: `New Booking - ${attraction.name}`,
-      html: `
-        <h2>New Booking Received</h2>
-        <p>Visitor: ${visitorName} (${visitorEmail})</p>
-        <p>Tickets: ${numberOfTickets}</p>
-        <p>Date: ${bookingDate} | Slot: ${timeSlot}</p>
-        <p>Total Amount: $${finalAmount.toFixed(2)}</p>
-        <p>Booking ID: ${bookingId}</p>
-      `
-    });
+    // await emailQueue.add('sendAdminEmail', {
+    //   to: process.env.ALERT_EMAIL,
+    //   subject: `New Booking - ${attraction.name}`,
+    //   html: `
+    //     <h2>New Booking Received</h2>
+    //     <p>Visitor: ${visitorName} (${visitorEmail})</p>
+    //     <p>Tickets: ${numberOfTickets}</p>
+    //     <p>Date: ${bookingDate} | Slot: ${timeSlot}</p>
+    //     <p>Total Amount: $${finalAmount.toFixed(2)}</p>
+    //     <p>Booking ID: ${bookingId}</p>
+    //   `
+    // });
 
     // ---------------------------
     // Respond to client

@@ -1,26 +1,18 @@
-# Use Node.js Alpine for lightweight image
+# Dockerfile
 FROM node:20-alpine
 
 # Set working directory
 WORKDIR /usr/src/app
 
-# Copy package files first for caching
+# Copy package files and install dependencies
 COPY package*.json ./
+RUN npm install --omit=dev --legacy-peer-deps
 
-# Install all dependencies (dev included!)
-RUN npm install
-
-# Install nodemon globally
-RUN npm install -g nodemon
-# Install all dependencies (dev included!)
-RUN npm install --legacy-peer-deps
-RUN npm install --legacy-peer-deps
-
-# Copy the rest of your code
+# Copy all source code
 COPY . .
 
 # Expose API port
 EXPOSE 4000
 
-# Default command: run nodemon
-CMD ["npm", "run", "dev"]
+# Default command (can be overridden in docker-compose)
+CMD ["npm", "start"]
